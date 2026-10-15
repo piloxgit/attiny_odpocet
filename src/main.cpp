@@ -12,7 +12,7 @@
 #define TONE_FREQ 2700 
 
 // Globální příznaky pro komunikaci s přerušením
-volatile bool reset_requested = false;
+volatile bool stop_requested = false;
 
 // Pomocná funkce pro současné pípnutí a vibraci
 void beep_and_vibrate(uint16_t duration_ms) {
@@ -29,18 +29,18 @@ void beep_and_vibrate(uint16_t duration_ms) {
 ISR(PCINT0_vect) {
   // Pokud došlo ke stisku tlačítka (logická 1 na PB1 při externím pull-downu)
   if (digitalRead(BUTTON_PIN) == HIGH) {
-    reset_requested = true; // Nastavíme příznak pro reset/probuzení
+    stop_requested = true; // Nastavíme příznak pro zastavení/probuzení
   }
 }
 
-// Funkce, která bezpečně počká 1 sekundu a zároveň hlídá stisk tlačítka pro reset
-bool wait_one_second_or_reset() {
+// Funkce, která bezpečně počká 1 sekundu a zároveň hlídá stisk tlačítka pro zastavení
+bool wait_one_second_or_stop() {
   for (int i = 0; i < 20; i++) {
     delay(50);
-    if (reset_requested) {
-      reset_requested = false; // Vynulovat příznak
+    if (stop_requested) {
+      stop_requested = false; // Vynulovat příznak
       delay(50);               // Odstranění zákmorů (debouncing)
-      return true;             // Detekován stisk -> signalizujeme reset
+      return true;             // Detekován stisk -> signalizujeme zastavení
     }
   }
   return false;
@@ -79,7 +79,7 @@ void loop() {
   
   // --- PROBUZENÍ ---
   sleep_disable();
-  reset_requested = false; // Vyčistit stav po probuzení
+  stop_requested = false; // Vyčistit stav po probuzení
   delay(50);               // Debounce po probuzení
 
   // Spustíme hlavní odpočítávací cyklus
@@ -92,9 +92,9 @@ void loop() {
     for (int sekunda = 1; sekunda <= celkovy_cas; sekunda++) {
       
       // Počkáme 1 sekundu, pokud funkce vrátí true, uživatel stiskl tlačítko znova
-      if (wait_one_second_or_reset()) {
+      if (wait_one_second_or_stop()) {
         preruseno = true;
-        break; // Přerušíme stávající odpočet a skočíme na začátek 'while' smyčky
+        break; // Přerušíme stávající odpočet
       }
 
       int zbyva_sekund = celkovy_cas - sekunda;
@@ -113,9 +113,14 @@ void loop() {
       }
     }
 
-    // Pokud byl odpočet přerušen stiskem tlačítka, smyčka 'while' skočí na začátek a počítá znovu
+    // Pokud byl odpočet zastaven stiskem tlačítka, počkáme na jeho puštění
+    // a procesor se vrátí do spánku. Další stisk spustí nový odpočet.
     if (preruseno) {
-      continue; 
+      while (digitalRead(BUTTON_PIN) == HIGH) {
+        delay(10);
+      }
+      delay(50);
+      break;
     }
 
     // --- DOSAŽENÍ NULY ---
